@@ -101,6 +101,20 @@ KeyCode::KeyCode(in_string keyName)
 
 struct TOUCH_POINT
 {
+	TOUCH_POINT() = default;
+	TOUCH_POINT(optional<FloatXY> newState, optional<FloatXY> prevState, FloatXY tpSize)
+	{
+		if (newState)
+		{
+			posX = newState->x(); // Absolute position in percentage
+			posY = newState->y();
+			if (prevState)
+			{
+				movX = int16_t((newState->x() - prevState->x()) * tpSize.x()); // Relative movement in unit
+				movY = int16_t((newState->y() - prevState->y()) * tpSize.y());
+			}
+		}
+	}
 	float posX = -1.f;
 	float posY = -1.f;
 	short movX = 0;
@@ -231,6 +245,9 @@ public:
 		{
 			touchpads.push_back(TouchStick(i, _context, handle));
 		}
+		left_stick.scroll.init(buttons[int(ButtonID::LLEFT)], buttons[int(ButtonID::LRIGHT)]);
+		right_stick.scroll.init(buttons[int(ButtonID::RLEFT)], buttons[int(ButtonID::RRIGHT)]);
+		motion_stick.scroll.init(buttons[int(ButtonID::MLEFT)], buttons[int(ButtonID::MRIGHT)]);
 		touch_scroll_x.init(touchpads[0].buttons.find(ButtonID::TLEFT)->second, touchpads[0].buttons.find(ButtonID::TRIGHT)->second);
 		touch_scroll_y.init(touchpads[0].buttons.find(ButtonID::TUP)->second, touchpads[0].buttons.find(ButtonID::TDOWN)->second);
 		updateGridSize();
@@ -1693,7 +1710,7 @@ void JoyShock::processStick(float stickX, float stickY, Stick &stick, float mous
 			float normY = stickY / stickLength;
 			// use screen resolution
 			float mouseX = getSetting(SettingID::SCREEN_RESOLUTION_X) * 0.5f + 0.5f + normX * mouse_ring_radius;
-			float mouseY = getSetting(SettingID::SCREEN_RESOLUTION_X) * 0.5f + 0.5f - normY * mouse_ring_radius;
+			float mouseY = getSetting(SettingID::SCREEN_RESOLUTION_Y) * 0.5f + 0.5f - normY * mouse_ring_radius;
 			// normalize
 			mouseX = mouseX / getSetting(SettingID::SCREEN_RESOLUTION_X);
 			mouseY = mouseY / getSetting(SettingID::SCREEN_RESOLUTION_Y);
@@ -1721,6 +1738,10 @@ void JoyShock::processStick(float stickX, float stickY, Stick &stick, float mous
 				// COUT << "Stick moved from " << lastAngle << " to " << angle; // << endl;
 				stick.scroll.processScroll(angle - lastAngle, getSetting<FloatXY>(SettingID::SCROLL_SENS).x(), time_now);
 			}
+		}
+		else
+		{
+			CERR << "Scroll object for stick " << stick._stickMode << " was not initialized!\n";
 		}
 	}
 	else if (stickMode == StickMode::NO_MOUSE || stickMode == StickMode::INNER_RING || stickMode == StickMode::OUTER_RING)
@@ -2097,38 +2118,33 @@ void DisplayTouchInfo(int id, optional<FloatXY> xy, optional<FloatXY> prevXY = n
 
 void TouchCallback(int jcHandle, TOUCH_STATE newState, TOUCH_STATE prevState, float delta_time)
 {
-
-	// if (current.t0Down || previous.t0Down)
+	//if (newState.t0Down || prevState.t0Down)
 	//{
-	//	DisplayTouchInfo(current.t0Down ? current.t0Id : previous.t0Id,
-	//		current.t0Down ? optional<FloatXY>({ current.t0X, current.t0Y }) : nullopt,
-	//		previous.t0Down ? optional<FloatXY>({ previous.t0X, previous.t0Y }) : nullopt);
-	// }
+	//	DisplayTouchInfo(newState.t0Down ? newState.t0Id : prevState.t0Id,
+	//	  newState.t0Down ? optional<FloatXY>({ newState.t0X, newState.t0Y }) : nullopt,
+	//	  prevState.t0Down ? optional<FloatXY>({ prevState.t0X, prevState.t0Y }) : nullopt);
+	//}
 
-	// if (current.t1Down || previous.t1Down)
+	//if (newState.t1Down || prevState.t1Down)
 	//{
-	//	DisplayTouchInfo(current.t1Down ? current.t1Id : previous.t1Id,
-	//		current.t1Down ? optional<FloatXY>({ current.t1X, current.t1Y }) : nullopt,
-	//		previous.t1Down ? optional<FloatXY>({ previous.t1X, previous.t1Y }) : nullopt);
-	// }
+	//	DisplayTouchInfo(newState.t1Down ? newState.t1Id : prevState.t1Id,
+	//	  newState.t1Down ? optional<FloatXY>({ newState.t1X, newState.t1Y }) : nullopt,
+	//	  prevState.t1Down ? optional<FloatXY>({ prevState.t1X, prevState.t1Y }) : nullopt);
+	//}
 
 	shared_ptr<JoyShock> js = handle_to_joyshock[jcHandle];
 	int tpSizeX, tpSizeY;
 	if (!js || jsl->GetTouchpadDimension(jcHandle, tpSizeX, tpSizeY) == false)
 		return;
+	FloatXY tpSize{ float(tpSizeX), float(tpSizeY) };
 
 	lock_guard guard(js->_context->callback_lock);
 
-	TOUCH_POINT point0, point1;
+	TOUCH_POINT point0(newState.t0Down ? make_optional<FloatXY>(newState.t0X, newState.t0Y) : nullopt,
+	  prevState.t0Down ? make_optional<FloatXY>(prevState.t0X, prevState.t0Y) : nullopt, tpSize);
 
-	point0.posX = newState.t0Down ? newState.t0X : -1.f; // Absolute position in percentage
-	point0.posY = newState.t0Down ? newState.t0Y : -1.f;
-	point0.movX = prevState.t0Down ? int16_t((newState.t0X - prevState.t0X) * tpSizeX) : 0; // Relative movement in unit
-	point0.movY = prevState.t0Down ? int16_t((newState.t0Y - prevState.t0Y) * tpSizeY) : 0;
-	point1.posX = newState.t1Down ? newState.t1X : -1.f;
-	point1.posY = newState.t1Down ? newState.t1Y : -1.f;
-	point1.movX = prevState.t1Down ? int16_t((newState.t1X - prevState.t1X) * tpSizeX) : 0;
-	point1.movY = prevState.t1Down ? int16_t((newState.t1Y - prevState.t1Y) * tpSizeY) : 0;
+	TOUCH_POINT point1(newState.t1Down ? make_optional<FloatXY>(newState.t1X, newState.t1Y) : nullopt,
+	  prevState.t1Down ? make_optional<FloatXY>(prevState.t1X, prevState.t1Y) : nullopt, tpSize);
 
 	auto mode = js->getSetting<TouchpadMode>(SettingID::TOUCHPAD_MODE);
 	// js->handleButtonChange(ButtonID::TOUCH, point0.isDown() || point1.isDown()); // This is handled by dual stage "trigger" step
@@ -2154,17 +2170,17 @@ void TouchCallback(int jcHandle, TOUCH_STATE newState, TOUCH_STATE prevState, fl
 		int index0 = -1, index1 = -1;
 		if (point0.isDown())
 		{
-			float row = floorf(point0.posY * grid_size.value().y());
-			float col = floorf(point0.posX * grid_size.value().x());
-			// cout << "I should be in button " << row << " " << col << endl;
+			float row = clamp(floorf(point0.posY * grid_size.value().y()), 0.f, grid_size.value().y()-1.f);
+			float col = clamp(floorf(point0.posX * grid_size.value().x()), 0.f, grid_size.value().x()-1.f);
+			// COUT << "I should be in button " << row << " " << col << endl;
 			index0 = int(row * grid_size.value().x() + col);
 		}
 
 		if (point1.isDown())
 		{
-			float row = floorf(point1.posY * grid_size.value().y());
-			float col = floorf(point1.posX * grid_size.value().x());
-			// cout << "I should be in button " << row << " " << col << endl;
+			float row = clamp(floorf(point1.posY * grid_size.value().y()), 0.f, grid_size.value().y() - 1.f);
+			float col = clamp(floorf(point1.posX * grid_size.value().x()), 0.f, grid_size.value().x() - 1.f);
+			// COUT << "I should be in button " << row << " " << col << endl;
 			index1 = int(row * grid_size.value().x() + col);
 		}
 
@@ -2247,10 +2263,10 @@ void CalibrateTriggers(shared_ptr<JoyShock> jc)
 	auto rpos = jsl->GetRightTrigger(jc->handle);
 	auto lpos = jsl->GetLeftTrigger(jc->handle);
 	auto tick_time = *SettingsManager::get<float>(SettingID::TICK_TIME);
-	static auto &right_trigger_offset = *SettingsManager::get<int>(SettingID::RIGHT_TRIGGER_OFFSET);
-	static auto &right_trigger_range = *SettingsManager::get<int>(SettingID::RIGHT_TRIGGER_RANGE);
-	static auto &left_trigger_offset = *SettingsManager::get<int>(SettingID::LEFT_TRIGGER_OFFSET);
-	static auto &left_trigger_range = *SettingsManager::get<int>(SettingID::LEFT_TRIGGER_RANGE);
+	static auto &right_trigger_offset = *SettingsManager::getV<int>(SettingID::RIGHT_TRIGGER_OFFSET);
+	static auto &right_trigger_range = *SettingsManager::getV<int>(SettingID::RIGHT_TRIGGER_RANGE);
+	static auto &left_trigger_offset = *SettingsManager::getV<int>(SettingID::LEFT_TRIGGER_OFFSET);
+	static auto &left_trigger_range = *SettingsManager::getV<int>(SettingID::LEFT_TRIGGER_RANGE);
 	switch (triggerCalibrationStep)
 	{
 	case 1:
@@ -3458,6 +3474,7 @@ ControllerScheme UpdateVirtualController(ControllerScheme prevScheme, Controller
 	bool success = true;
 	for (auto &js : handle_to_joyshock)
 	{
+		lock_guard guard(js.second->_context->callback_lock);
 		if (!js.second->_context->_vigemController ||
 		  js.second->_context->_vigemController->getType() != nextScheme)
 		{
@@ -3490,11 +3507,13 @@ void OnVirtualControllerChange(const ControllerScheme &newScheme)
 	for (auto &js : handle_to_joyshock)
 	{
 		// Display an error message if any vigem is no good.
+		lock_guard guard(js.second->_context->callback_lock);
 		if (!js.second->CheckVigemState())
 		{
 			break;
 		}
 	}
+	// TODO: on NONE clear mappings with vigem commands?
 }
 
 void RefreshAutoLoadHelp(JSMAssignment<Switch> *autoloadCmd)
